@@ -1,0 +1,46 @@
+name: Sync upstream
+
+# Replaces the fetch-at-build-time model: because this is a fork, upstream
+# changes must be merged into main. Model updates land upstream as ordinary
+# commits, so this keeps the fork current and lets docker-build.yml publish.
+on:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Merge upstream/main
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git remote add upstream https://github.com/standardagents/composer-api.git
+          git fetch upstream main
+          BEFORE=$(git rev-parse HEAD)
+          # Everything this fork adds lives under docker/ and .github/workflows/
+          # docker-*.yml -- all new files -- so this merge should never conflict.
+          if git merge --no-edit upstream/main; then
+            AFTER=$(git rev-parse HEAD)
+            if [ "$BEFORE" = "$AFTER" ]; then
+              echo "Already up to date."
+            else
+              git push origin main
+              echo "Merged upstream and pushed." >> "$GITHUB_STEP_SUMMARY"
+            fi
+          else
+            git merge --abort
+            echo "::error::Upstream merge conflicted. Resolve locally:"
+            echo "  git fetch upstream && git merge upstream/main"
+            exit 1
+          fi

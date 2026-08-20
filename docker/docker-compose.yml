@@ -1,0 +1,45 @@
+# Local development stack. For Unraid use docker/unraid/docker-compose.yml.
+# Run from the REPO ROOT:  docker compose -f docker/docker-compose.yml up -d --build
+name: api-for-cursor
+
+services:
+  bridge:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: bridge
+    environment:
+      CURSOR_SDK_BRIDGE_HOST: 0.0.0.0
+      CURSOR_SDK_BRIDGE_PORT: "8792"
+      CURSOR_SDK_BRIDGE_TOKEN: ${BRIDGE_TOKEN:?set BRIDGE_TOKEN in docker/.env}
+      CURSOR_SDK_BRIDGE_RUN_TIMEOUT_MS: ${REQUEST_TIMEOUT_MS:-180000}
+      CURSOR_SDK_WORKING_DIRECTORY: /workspace
+      HOME: /home/node
+    volumes:
+      - bridge-state:/home/node
+      - workspace:/workspace
+    restart: unless-stopped
+    expose: ["8792"]
+
+  api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: api
+    depends_on:
+      bridge:
+        condition: service_healthy
+    environment:
+      PORT: "8787"
+      CURSOR_SDK_BRIDGE_URL: http://bridge:8792/sdk
+      CURSOR_SDK_BRIDGE_TOKEN: ${BRIDGE_TOKEN:?set BRIDGE_TOKEN in docker/.env}
+      CURSOR_SDK_BRIDGE_TIMEOUT_MS: ${REQUEST_TIMEOUT_MS:-180000}
+      CURSOR_API_KEY: ${CURSOR_API_KEY:?set CURSOR_API_KEY in docker/.env}
+      LOCAL_API_TOKEN: ${LOCAL_API_TOKEN:-}
+    ports:
+      - "${BIND_ADDR:-127.0.0.1}:${BIND_PORT:-8787}:8787"
+    restart: unless-stopped
+
+volumes:
+  bridge-state:
+  workspace:
