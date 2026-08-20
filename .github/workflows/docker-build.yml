@@ -1,0 +1,75 @@
+name: Build and publish images
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'worker/**'
+      - 'scripts/cursor-sdk-local-agent-bridge.mjs'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'containers/**'
+      - 'docker/**'
+      - '.github/workflows/docker-build.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE: ghcr.io/${{ github.repository }}
+
+jobs:
+  build:
+    name: Build, smoke, publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check upstream bridge Dockerfile for drift
+        run: bash docker/check-bridge-drift.sh
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build (linux/amd64 — Unraid and most servers are x86_64)
+        run: |
+          SHA="${{ github.sha }}"
+          for target in api bridge; do
+            docker buildx build \
+              --platform linux/amd64 \
+              --file docker/Dockerfile \
+              --target "$target" \
+              --build-arg SOURCE_SHA="$SHA" \
+              --tag "$IMAGE-$target:${SHA::12}" \
+              --tag "$IMAGE-$target:latest" \
+              --load .
+          done
+
+      - name: Smoke test (no Cursor credentials needed)
+        run: |
+          SHA="${{ github.sha }}"
+          docker network create smoke
+          docker run -d --name bridge --network smoke \
+            -e CURSOR_SDK_BRIDGE_HOST=0.0.0.0 -e CURSOR_SDK_BRIDGE_PORT=8792 \
+            -e CURSOR_SDK_BRIDGE_TOKEN=smoke-token "$IMAGE-bridge:${SHA::12}"
+          docker run -d --name api --network smoke -p 8787:8787 \
+            -e CURSOR_SDK_BRIDGE_URL=http://bridge:8792/sdk \
+            -e CURSOR_SDK_BRIDGE_TOKEN=smoke-token \
+            -e CURSOR_API_KEY=smoke-not-a-real-key "$IMAGE-api:${SHA::12}"
+          bash docker/smoke.sh || { docker logs api; docker logs bridge; exit 1; }
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push
+        run: |
+          SHA="${{ github.sha }}"
+          for target in api bridge; do
+            docker push "$IMAGE-$target:${SHA::12}"
+            docker push "$IMAGE-$target:latest"
+          done
+          echo "Published \`$IMAGE-api:${SHA::12}\`" >> "$GITHUB_STEP_SUMMARY"

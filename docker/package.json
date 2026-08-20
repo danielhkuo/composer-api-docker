@@ -1,0 +1,15 @@
+{
+  "name": "api-for-cursor-docker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Downstream Docker packaging for standardagents/composer-api. Contains no upstream source.",
+  "scripts": {
+    "bundle": "node build/bundle.mjs",
+    "start": "node dist/server.mjs",
+    "smoke": "bash scripts/smoke.sh"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0"
+  }
+}

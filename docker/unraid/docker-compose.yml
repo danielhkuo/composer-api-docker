@@ -1,0 +1,48 @@
+# Unraid stack -- build-free. Pulls prebuilt linux/amd64 images from GHCR.
+#
+# ONE-TIME SETUP (Unraid terminal):
+#   docker network create cursor-api
+#   mkdir -p /mnt/user/appdata/api-for-cursor/bridge-state
+#   mkdir -p /mnt/user/appdata/api-for-cursor/workspace
+#   chown -R 99:100 /mnt/user/appdata/api-for-cursor
+#   cp secrets.env.example /mnt/user/appdata/api-for-cursor/secrets.env  # fill in
+#   chmod 600 /mnt/user/appdata/api-for-cursor/secrets.env
+# Then: Settings -> Docker -> Advanced -> "Preserve user defined networks" = Yes
+
+services:
+  bridge:
+    image: ${BRIDGE_IMAGE:-ghcr.io/danielhkuo/composer-api-docker-bridge:latest}
+    container_name: cursor-api-bridge
+    user: "99:100"
+    env_file:
+      - /mnt/user/appdata/api-for-cursor/secrets.env
+    environment:
+      CURSOR_SDK_BRIDGE_HOST: 0.0.0.0
+      CURSOR_SDK_BRIDGE_PORT: "8792"
+      CURSOR_SDK_WORKING_DIRECTORY: /workspace
+      HOME: /home/node          # load-bearing: @cursor/sdk roots its state here
+    volumes:
+      - /mnt/user/appdata/api-for-cursor/bridge-state:/home/node
+      - /mnt/user/appdata/api-for-cursor/workspace:/workspace
+    restart: unless-stopped
+    networks: [default]
+
+  api:
+    image: ${API_IMAGE:-ghcr.io/danielhkuo/composer-api-docker-api:latest}
+    container_name: cursor-api
+    env_file:
+      - /mnt/user/appdata/api-for-cursor/secrets.env
+    environment:
+      PORT: "8787"
+      CURSOR_SDK_BRIDGE_URL: http://bridge:8792/sdk
+    # No published port. hermes joins the `cursor-api` network and uses
+    # http://cursor-api:8787/v1. A 127.0.0.1 publish would NOT work for a
+    # sibling container: the DNAT rule carries -d 127.0.0.1/32.
+    restart: unless-stopped
+    networks: [default, hermes]
+
+networks:
+  default:
+  hermes:
+    external: true
+    name: cursor-api

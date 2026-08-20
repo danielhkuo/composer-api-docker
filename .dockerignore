@@ -1,0 +1,9 @@
+.git
+.github
+docker/node_modules
+docker/dist
+docker/.env
+macos
+public
+dist
+node_modules
